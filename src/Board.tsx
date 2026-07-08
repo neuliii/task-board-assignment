@@ -12,13 +12,22 @@ const COLUMNS: { status: Status; title: string }[] = [
 export default function Board() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    // 순진한 초기 로드: 로딩만 처리합니다.
-    // TODO(P1): 에러 상태 + 재시도, 빈 상태 처리를 구현하세요.
+  const loadTasks = () => {
+    setLoading(true)
+    setError(null)
+
     getTasks()
       .then((data) => setTasks(data))
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : '태스크를 불러오지 못했습니다.')
+      })
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadTasks()
   }, [])
 
   // ⚠️ 서버에 저장하지 않고 로컬 상태만 바꾸는 "순진한" 이동입니다.
@@ -37,6 +46,21 @@ export default function Board() {
   }, [tasks])
 
   if (loading) return <p className="hint">불러오는 중…</p>
+
+  if (error) {
+    return (
+      <div className="state-message" role="alert">
+        <p>{error}</p>
+        <button type="button" onClick={loadTasks}>
+          다시 시도
+        </button>
+      </div>
+    )
+  }
+
+  if (tasks.length === 0) {
+    return <p className="state-message">표시할 태스크가 없습니다.</p>
+  }
 
   return (
     <div className="board">
