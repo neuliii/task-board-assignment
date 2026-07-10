@@ -8,6 +8,7 @@ interface TaskStore {
   loadError: string | null
   mutationError: string | null
   pendingMoveIds: Record<string, number>
+  desiredMoveStatuses: Partial<Record<string, Status>>
   loadTasks: () => Promise<void>
   moveTask: (id: string, status: Status) => Promise<void>
   clearMutationError: () => void
@@ -27,12 +28,22 @@ const removePendingMove = (pendingMoveIds: Record<string, number>, id: string) =
   return next
 }
 
+const removeDesiredMove = (
+  desiredMoveStatuses: Partial<Record<string, Status>>,
+  id: string,
+) => {
+  const next = { ...desiredMoveStatuses }
+  delete next[id]
+  return next
+}
+
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   loading: true,
   loadError: null,
   mutationError: null,
   pendingMoveIds: {},
+  desiredMoveStatuses: {},
 
   loadTasks: async () => {
     set({ loading: true, loadError: null })
@@ -58,6 +69,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       tasks: state.tasks.map((task) => (task.id === id ? { ...task, status } : task)),
       mutationError: null,
       pendingMoveIds: { ...state.pendingMoveIds, [id]: moveId },
+      desiredMoveStatuses: { ...state.desiredMoveStatuses, [id]: status },
     }))
 
     if (movingTaskIds.has(id)) return
@@ -67,17 +79,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
     try {
       while (true) {
-        const desiredTask = get().tasks.find((task) => task.id === id)
-        if (!desiredTask || desiredTask.status === confirmedTask.status) {
+        const desiredStatus = get().desiredMoveStatuses[id]
+        if (!desiredStatus || desiredStatus === confirmedTask.status) {
           set((state) => ({
             pendingMoveIds: removePendingMove(state.pendingMoveIds, id),
+            desiredMoveStatuses: removeDesiredMove(state.desiredMoveStatuses, id),
           }))
           return
         }
 
         try {
           const updatedTask = await updateTask(id, {
-            status: desiredTask.status,
+            status: desiredStatus,
             version: confirmedTask.version,
           })
           confirmedTask = updatedTask
@@ -86,17 +99,22 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
             const currentTask = state.tasks.find((task) => task.id === id)
             if (!currentTask) return state
 
+            const latestDesiredStatus = state.desiredMoveStatuses[id]
+            const isLatestSynced =
+              !latestDesiredStatus || latestDesiredStatus === updatedTask.status
             const nextTask =
-              currentTask.status === updatedTask.status
+              isLatestSynced
                 ? updatedTask
-                : { ...updatedTask, status: currentTask.status }
+                : { ...updatedTask, status: latestDesiredStatus }
 
             return {
               tasks: state.tasks.map((task) => (task.id === id ? nextTask : task)),
-              pendingMoveIds:
-                nextTask.status === updatedTask.status
-                  ? removePendingMove(state.pendingMoveIds, id)
-                  : state.pendingMoveIds,
+              pendingMoveIds: isLatestSynced
+                ? removePendingMove(state.pendingMoveIds, id)
+                : state.pendingMoveIds,
+              desiredMoveStatuses: isLatestSynced
+                ? removeDesiredMove(state.desiredMoveStatuses, id)
+                : state.desiredMoveStatuses,
             }
           })
         } catch (err) {
@@ -106,6 +124,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
               confirmedTask,
             )}`,
             pendingMoveIds: removePendingMove(state.pendingMoveIds, id),
+            desiredMoveStatuses: removeDesiredMove(state.desiredMoveStatuses, id),
           }))
           return
         }
