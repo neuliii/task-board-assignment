@@ -27,6 +27,7 @@ export default function Board() {
   const [form, setForm] = useState<TaskFormInput>(EMPTY_FORM)
   const [dialogMode, setDialogMode] = useState<DialogMode>(null)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [createScrollSignal, setCreateScrollSignal] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const tasks = useTaskStore((state) => state.tasks)
   const loading = useTaskStore((state) => state.loading)
@@ -86,7 +87,9 @@ export default function Board() {
       if (dialogMode === 'edit' && editingTaskId) {
         await editTask(editingTaskId, form)
       } else {
-        await createTask(form)
+        const createRequest = createTask(form)
+        setCreateScrollSignal((signal) => signal + 1)
+        await createRequest
       }
       resetForm()
     } finally {
@@ -210,6 +213,7 @@ export default function Board() {
             onMove={moveTask}
             onEdit={handleEditStart}
             onDelete={handleDelete}
+            scrollToTopSignal={col.status === 'todo' ? createScrollSignal : 0}
           />
         ))}
       </div>

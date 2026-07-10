@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Task, Status } from '../types'
 import { Card } from './Card'
@@ -10,16 +10,32 @@ interface Props {
   onMove: (id: string, status: Status) => void
   onEdit: (task: Task) => void
   onDelete: (task: Task) => void
+  scrollToTopSignal?: number
 }
 
-export function Column({ title, status, tasks, onMove, onEdit, onDelete }: Props) {
+export function Column({
+  title,
+  status,
+  tasks,
+  onMove,
+  onEdit,
+  onDelete,
+  scrollToTopSignal = 0,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const rowVirtualizer = useVirtualizer({
     count: tasks.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 74,
+    getItemKey: (index) => tasks[index]?.id ?? index,
+    estimateSize: () => 120,
     overscan: 8,
   })
+
+  useEffect(() => {
+    if (scrollToTopSignal > 0) {
+      scrollRef.current?.scrollTo({ top: 0 })
+    }
+  }, [scrollToTopSignal])
 
   return (
     <section
