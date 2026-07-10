@@ -8,9 +8,11 @@ interface Props {
   status: Status
   tasks: Task[]
   onMove: (id: string, status: Status) => void
+  onEdit: (task: Task) => void
+  onDelete: (task: Task) => void
 }
 
-export function Column({ title, status, tasks, onMove }: Props) {
+export function Column({ title, status, tasks, onMove, onEdit, onDelete }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const rowVirtualizer = useVirtualizer({
     count: tasks.length,
@@ -48,7 +50,7 @@ export function Column({ title, status, tasks, onMove }: Props) {
                 data-index={virtualRow.index}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                <Card task={task} />
+                <Card task={task} onEdit={onEdit} onDelete={onDelete} />
               </div>
             )
           })}

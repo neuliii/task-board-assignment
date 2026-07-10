@@ -1,6 +1,17 @@
 import { create } from 'zustand'
-import type { Status, Task } from '../types'
-import { getTasks, updateTask } from '../api/client'
+import type { Priority, Status, Task } from '../types'
+import {
+  createTask as createTaskRequest,
+  deleteTask as deleteTaskRequest,
+  getTasks,
+  updateTask,
+} from '../api/client'
+
+export interface TaskFormInput {
+  title: string
+  priority: Priority
+  description?: string
+}
 
 interface TaskStore {
   tasks: Task[]
@@ -10,6 +21,9 @@ interface TaskStore {
   pendingMoveIds: Record<string, number>
   desiredMoveStatuses: Partial<Record<string, Status>>
   loadTasks: () => Promise<void>
+  createTask: (input: TaskFormInput) => Promise<void>
+  editTask: (id: string, input: TaskFormInput) => Promise<void>
+  deleteTask: (id: string) => Promise<void>
   moveTask: (id: string, status: Status) => Promise<void>
   clearMutationError: () => void
 }
@@ -20,7 +34,36 @@ const getErrorMessage = (err: unknown, fallback: string) =>
 const getTaskLabel = (task: Task) => task.title.match(/Task #\d+/)?.[0] ?? task.title
 
 let nextMoveId = 0
+let nextOptimisticId = 0
 const movingTaskIds = new Set<string>()
+
+const normalizeTaskInput = (input: TaskFormInput) => {
+  const title = input.title.trim()
+  const description = input.description?.trim()
+
+  return {
+    title,
+    priority: input.priority,
+    ...(description ? { description } : { description: undefined }),
+  }
+}
+
+const makeOptimisticTask = (input: ReturnType<typeof normalizeTaskInput>): Task => {
+  nextOptimisticId += 1
+  const now = new Date().toISOString()
+
+  return {
+    id: `optimistic-task-${nextOptimisticId}`,
+    title: input.title,
+    description: input.description,
+    status: 'todo',
+    priority: input.priority,
+    tags: [],
+    createdAt: now,
+    updatedAt: now,
+    version: 0,
+  }
+}
 
 const removePendingMove = (pendingMoveIds: Record<string, number>, id: string) => {
   const next = { ...pendingMoveIds }
@@ -55,6 +98,110 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({ loadError: getErrorMessage(err, '태스크를 불러오지 못했습니다.') })
     } finally {
       set({ loading: false })
+    }
+  },
+
+  createTask: async (input) => {
+    const normalizedInput = normalizeTaskInput(input)
+    if (!normalizedInput.title) return
+
+    const optimisticTask = makeOptimisticTask(normalizedInput)
+
+    set((state) => ({
+      tasks: [optimisticTask, ...state.tasks],
+      mutationError: null,
+    }))
+
+    try {
+      const createdTask = await createTaskRequest({
+        ...normalizedInput,
+        status: 'todo',
+      })
+
+      set((state) => ({
+        tasks: state.tasks.map((task) =>
+          task.id === optimisticTask.id ? createdTask : task,
+        ),
+      }))
+    } catch (err) {
+      set((state) => ({
+        tasks: state.tasks.filter((task) => task.id !== optimisticTask.id),
+        mutationError: '태스크 생성에 실패했습니다. 다시 시도해 주세요.',
+      }))
+    }
+  },
+
+  editTask: async (id, input) => {
+    const normalizedInput = normalizeTaskInput(input)
+    if (!normalizedInput.title) return
+
+    const previousTask = get().tasks.find((task) => task.id === id)
+    if (!previousTask) return
+
+    const optimisticTask: Task = {
+      ...previousTask,
+      ...normalizedInput,
+      updatedAt: new Date().toISOString(),
+    }
+
+    set((state) => ({
+      tasks: state.tasks.map((task) => (task.id === id ? optimisticTask : task)),
+      mutationError: null,
+    }))
+
+    try {
+      const updatedTask = await updateTask(id, {
+        ...normalizedInput,
+        version: previousTask.version,
+      })
+
+      set((state) => ({
+        tasks: state.tasks.map((task) => (task.id === id ? updatedTask : task)),
+      }))
+    } catch (err) {
+      set((state) => ({
+        tasks: state.tasks.map((task) => (task.id === id ? previousTask : task)),
+        mutationError: `태스크 수정에 실패했습니다. 다시 시도해 주세요. ${getTaskLabel(
+          previousTask,
+        )}`,
+      }))
+    }
+  },
+
+  deleteTask: async (id) => {
+    const tasks = get().tasks
+    const previousIndex = tasks.findIndex((task) => task.id === id)
+    if (previousIndex === -1) return
+
+    const previousTask = tasks[previousIndex]
+
+    set((state) => ({
+      tasks: state.tasks.filter((task) => task.id !== id),
+      mutationError: null,
+    }))
+
+    try {
+      await deleteTaskRequest(id)
+    } catch (err) {
+      set((state) => {
+        if (state.tasks.some((task) => task.id === id)) {
+          return {
+            mutationError: `태스크 삭제에 실패했습니다. 다시 시도해 주세요. ${getTaskLabel(
+              previousTask,
+            )}`,
+          }
+        }
+
+        const nextTasks = state.tasks.slice()
+        nextTasks.splice(previousIndex, 0, previousTask)
+
+        return {
+          tasks: nextTasks,
+          mutationError: `태스크 삭제에 실패했습니다. 다시 시도해 주세요. ${getTaskLabel(
+            previousTask,
+          )}`,
+        }
+      })
     }
   },
 
