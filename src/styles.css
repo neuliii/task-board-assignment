@@ -125,12 +125,22 @@ body {
 }
 
 .column-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   /* 대량 렌더 시 컬럼이 무한정 길어지지 않도록 스크롤만 걸어둡니다. */
   max-height: 75vh;
   overflow-y: auto;
+}
+
+.virtual-list {
+  position: relative;
+  width: 100%;
+}
+
+.virtual-row {
+  left: 0;
+  padding-bottom: 8px;
+  position: absolute;
+  top: 0;
+  width: 100%;
 }
 
 .card {
